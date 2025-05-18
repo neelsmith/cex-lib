@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CEX Parser Test</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        h1, h2, h3 { color: #333; }
+        pre { background-color: #f4f4f4; padding: 10px; border: 1px solid #ddd; white-space: pre-wrap; word-wrap: break-word; }
+        ul { list-style-type: square; }
+        .error { color: red; font-weight: bold; }
+        .loader {
+            border: 5px solid #f3f3f3; /* Light grey */
+            border-top: 5px solid #3498db; /* Blue */
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+    <!--
+        For local development, use:
+        <script src="cex-parser.js"></script>
+
+        Once you push to GitHub and create a release/tag (e.g., v1.0.0),
+        you can use jsDelivr like this (replace YOUR_USERNAME, YOUR_REPO, YOUR_TAG):
+        <script src="https://cdn.jsdelivr.net/gh/YOUR_USERNAME/YOUR_REPO@YOUR_TAG/cex-parser.js"></script>
+    -->
+    <script src="cex.js"></script> <!-- Using local file for this example -->
+
+</head>
+<body>
+    <h1>CEX Parser Test</h1>
+
+    <p>
+        Attempting to load CEX data from:
+        <a id="dataSourceUrl" href="https://raw.githubusercontent.com/homermultitext/hmt-archive/refs/heads/master/releases-cex/hmt-current.cex" target="_blank">
+            https://raw.githubusercontent.com/homermultitext/hmt-archive/refs/heads/master/releases-cex/hmt-current.cex
+        </a>
+    </p>
+    <div id="loadingIndicator" class="loader" style="display: none;"></div>
+
+    <h2>Unique Block Labels:</h2>
+    <ul id="blockList">
+        <li>Loading...</li>
+    </ul>
+
+    <h2>Contents of 'citelibrary' blocks:</h2>
+    <div id="citelibraryContents">
+        <p>Loading...</p>
+    </div>
+
+    <hr>
+    <h2>Test with local file:</h2>
+    <input type="file" id="fileInput" accept=".cex,.txt">
+    <div id="localFileResults" style="display:none;">
+        <h3>Unique Block Labels (from local file):</h3>
+        <ul id="localBlockList"></ul>
+        <h3>Contents of 'citelibrary' blocks (from local file):</h3>
+        <div id="localCitelibraryContents"></div>
+    </div>
+
+
+    <script>
+        const cexUrl = 'https://raw.githubusercontent.com/homermultitext/hmt-archive/refs/heads/master/releases-cex/hmt-current.cex';
+        document.getElementById('dataSourceUrl').textContent = cexUrl;
+
+        const blockListUl = document.getElementById('blockList');
+        const citelibraryDiv = document.getElementById('citelibraryContents');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+
+        const displayResults = (parser, targetBlockListUl, targetCitelibraryDiv) => {
+            // Display unique block labels
+            targetBlockListUl.innerHTML = ''; // Clear previous
+            const uniqueLabels = parser.getUniqueBlockLabels();
+            if (uniqueLabels.length > 0) {
+                uniqueLabels.forEach(label => {
+                    const li = document.createElement('li');
+                    li.textContent = label;
+                    targetBlockListUl.appendChild(li);
+                });
+            } else {
+                targetBlockListUl.innerHTML = '<li>No block labels found.</li>';
+            }
+
+            // Display contents of 'citelibrary' blocks
+            targetCitelibraryDiv.innerHTML = ''; // Clear previous
+            const citelibraryBlocks = parser.getBlockContents('citelibrary');
+            if (citelibraryBlocks.length > 0) {
+                citelibraryBlocks.forEach((content, index) => {
+                    const pre = document.createElement('pre');
+                    pre.textContent = content;
+                    targetCitelibraryDiv.appendChild(document.createTextNode(`--- Block ${index + 1} ---`));
+                    targetCitelibraryDiv.appendChild(pre);
+                });
+            } else {
+                targetCitelibraryDiv.innerHTML = '<p>No "citelibrary" blocks found.</p>';
+            }
+        };
+
+        const handleError = (error, targetBlockListUl, targetCitelibraryDiv) => {
+            console.error("CEX Parser Error:", error);
+            targetBlockListUl.innerHTML = `<li class="error">Error loading or parsing CEX data: ${error.message}</li>`;
+            targetCitelibraryDiv.innerHTML = `<p class="error">Error loading or parsing CEX data: ${error.message}</p>`;
+        };
+        
+        async function loadAndProcessUrl() {
+            loadingIndicator.style.display = 'block';
+            blockListUl.innerHTML = '<li>Loading...</li>';
+            citelibraryDiv.innerHTML = '<p>Loading...</p>';
+
+            const parser = new CEXParser();
+            try {
+                await parser.loadFromUrl(cexUrl);
+                displayResults(parser, blockListUl, citelibraryDiv);
+            } catch (error) {
+                handleError(error, blockListUl, citelibraryDiv);
+            } finally {
+                loadingIndicator.style.display = 'none';
+            }
+        }
+
+        // --- Local File Handling ---
+        const fileInput = document.getElementById('fileInput');
+        const localFileResultsDiv = document.getElementById('localFileResults');
+        const localBlockListUl = document.getElementById('localBlockList');
+        const localCitelibraryDiv = document.getElementById('localCitelibraryContents');
+
+        fileInput.addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                localFileResultsDiv.style.display = 'block';
+                localBlockListUl.innerHTML = '<li>Processing...</li>';
+                localCitelibraryDiv.innerHTML = '<p>Processing...</p>';
+                loadingIndicator.style.display = 'block';
+
+                const parser = new CEXParser();
+                try {
+                    await parser.loadFromFile(file);
+                    displayResults(parser, localBlockListUl, localCitelibraryDiv);
+                } catch (error) {
+                    handleError(error, localBlockListUl, localCitelibraryDiv);
+                } finally {
+                    loadingIndicator.style.display = 'none';
+                }
+            }
+        });
+
+        // Initial load from URL
+        loadAndProcessUrl();
+    </script>
+</body>
+</html>
