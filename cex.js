@@ -20,37 +20,30 @@
                 const line = rawLine.trim();
 
                 if (line === '' || line.startsWith('//')) {
-                    continue; // Ignore empty lines and comments
+                    continue; // Ignore empty lines and comments globally
                 }
 
                 if (line.startsWith('#!')) {
-                    // If there was a previous block, store its collected lines
                     if (currentLabel && currentBlockLines.length > 0) {
                         if (!this.blocks[currentLabel]) {
                             this.blocks[currentLabel] = [];
                         }
                         this.blocks[currentLabel].push(currentBlockLines.join('\n'));
                     }
-                    // Start a new block
                     currentLabel = line.substring(2).trim();
-                    currentBlockLines = []; // Reset lines for the new block
+                    currentBlockLines = [];
                 } else if (currentLabel) {
-                    // Only add lines if we are inside a block
-                    // We use rawLine here to preserve original indentation within a block,
-                    // though trimming is generally good for block content lines too.
-                    // For simplicity and to match common CEX usage, let's add the non-trimmed line.
-                    currentBlockLines.push(rawLine);
+                    currentBlockLines.push(rawLine); // Add raw line to preserve internal formatting
                 }
             }
 
-            // Store the last block's lines if any
             if (currentLabel && currentBlockLines.length > 0) {
                 if (!this.blocks[currentLabel]) {
                     this.blocks[currentLabel] = [];
                 }
                 this.blocks[currentLabel].push(currentBlockLines.join('\n'));
             }
-            return this; // Allow chaining
+            return this;
         }
 
         /**
@@ -108,16 +101,73 @@
         getUniqueBlockLabels() {
             return Object.keys(this.blocks);
         }
+
+        /**
+         * Finds unique values from a specified column in 'datamodels' blocks
+         * where another specified column matches a given value.
+         * Assumes pipe-delimited data with a header row.
+         *
+         * @param {string} targetModelValue The value to search for in the 'Model' column.
+         * @param {string} [modelColumnName="Model"] The name of the column containing model identifiers.
+         * @param {string} [collectionColumnName="Collection"] The name of the column from which to extract values.
+         * @returns {string[]} An array of unique string values from the 'Collection' column, sorted.
+         */
+        getCollectionsForModel(targetModelValue, modelColumnName = "Model", collectionColumnName = "Collection") {
+            const datamodelBlocksContent = this.getBlockContents('datamodels');
+            if (!datamodelBlocksContent || datamodelBlocksContent.length === 0) {
+                return [];
+            }
+
+            const allMatchingCollections = new Set();
+
+            datamodelBlocksContent.forEach(blockContentStr => {
+                // blockContentStr is a multi-line string from a single 'datamodels' block.
+                // Lines that were globally empty or comments (after trim) were already filtered by parse().
+                const linesInBlock = blockContentStr.split('\n');
+
+                if (linesInBlock.length < 1) { // Need at least a header line.
+                    return; // Skip this malformed block content
+                }
+
+                // The first line in the block's content string is assumed to be the header.
+                // Note: Comments specific to datamodels format (e.g. // within the block but not at start of trimmed line)
+                // would have been filtered by main parse if they started lines.
+                // If not, they are treated as data here. Robust CEX should place such comments on their own lines.
+                const headerRaw = linesInBlock[0];
+                const headerParts = headerRaw.split('|').map(h => h.trim());
+                const modelColIdx = headerParts.indexOf(modelColumnName);
+                const collectionColIdx = headerParts.indexOf(collectionColumnName);
+
+                if (modelColIdx === -1 || collectionColIdx === -1) {
+                    console.warn(`'${modelColumnName}' or '${collectionColumnName}' column not found in datamodels block header: '${headerRaw.substring(0,100)}...'`);
+                    return; // Skip this block if headers aren't as expected
+                }
+
+                // Process data lines (starting from index 1)
+                for (let i = 1; i < linesInBlock.length; i++) {
+                    const dataLineRaw = linesInBlock[i];
+                    // Skip if the raw line is effectively empty (e.g. only whitespace, though parse() should catch most)
+                    if (dataLineRaw.trim() === '') continue; 
+
+                    const dataParts = dataLineRaw.split('|').map(d => d.trim());
+                    if (dataParts.length > Math.max(modelColIdx, collectionColIdx)) { // Ensure line has enough columns
+                        if (dataParts[modelColIdx] === targetModelValue) {
+                            allMatchingCollections.add(dataParts[collectionColIdx]);
+                        }
+                    } else {
+                        // console.warn(`Data line in datamodels block does not have enough columns or is malformed: '${dataLineRaw.substring(0,100)}...'`);
+                    }
+                }
+            });
+
+            return Array.from(allMatchingCollections).sort();
+        }
     }
 
-    // Expose CEXParser to the global scope (for browser environments)
     if (typeof window !== 'undefined') {
         window.CEXParser = CEXParser;
     }
-
-    // For Node.js environment (optional, but good practice for a library)
     if (typeof module !== 'undefined' && module.exports) {
         module.exports = CEXParser;
     }
-
 })(typeof window !== 'undefined' ? window : this);
