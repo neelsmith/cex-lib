@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test: Get Delimited Data from CEX Blocks</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        h1, h2 { color: #333; }
+        .error { color: red; font-weight: bold; }
+        .status { font-style: italic; color: #555; margin-bottom: 10px;}
+        .loader {
+            border: 5px solid #f3f3f3; /* Light grey */
+            border-top: 5px solid #3498db; /* Blue */
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 10px 0;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        select, input[type="checkbox"], button { margin-bottom: 15px; padding: 8px; font-size: 1em; }
+        input[type="file"] { margin-bottom: 15px; }
+        .controls > * { margin-right: 15px; vertical-align: middle;}
+        pre {
+            background-color: #f4f4f4;
+            padding: 15px;
+            border: 1px solid #ddd;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+    </style>
+    <script src="cex.js"></script>
+</head>
+<body>
+    <h1>Test: Get Delimited Data from CEX Blocks</h1>
+
+    <p>
+        Choose a local CEX file. Then select a block type and whether to include the header.
+        The concatenated content of all blocks of that type will be displayed.
+    </p>
+
+    <div>
+        <label for="fileInput">Choose CEX file:</label>
+        <input type="file" id="fileInput" accept=".cex,.txt">
+    </div>
+
+    <div id="loadingIndicator" class="loader" style="display: none;"></div>
+    <div id="statusMessage" class="status">Please select a CEX file to begin.</div>
+
+    <div id="controlsArea" style="display: none;">
+        <div class="controls">
+            <label for="blockTypeSelect">Block Type:</label>
+            <select id="blockTypeSelect">
+                <option value="citedata">citedata</option>
+                <option value="citecollections">citecollections</option>
+                <option value="citeproperties">citeproperties</option>
+                <option value="ctscatalog">ctscatalog</option>
+                <option value="ctsdata">ctsdata</option>
+                <option value="datamodels">datamodels</option>
+            </select>
+
+            <input type="checkbox" id="includeHeaderCheckbox" checked>
+            <label for="includeHeaderCheckbox">Include Header Line</label>
+
+            <button id="getDataButton">Get Data</button>
+        </div>
+    </div>
+
+    <h2>Retrieved Data:</h2>
+    <pre id="dataOutput">Select a file and options, then click "Get Data".</pre>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const fileInput = document.getElementById('fileInput');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            const statusMessageDiv = document.getElementById('statusMessage');
+            const controlsAreaDiv = document.getElementById('controlsArea');
+            const blockTypeSelect = document.getElementById('blockTypeSelect');
+            const includeHeaderCheckbox = document.getElementById('includeHeaderCheckbox');
+            const getDataButton = document.getElementById('getDataButton');
+            const dataOutputPre = document.getElementById('dataOutput');
+
+            let cexParserInstance = null;
+
+            const resetUIForNewFile = (message = "Please select a CEX file to begin.") => {
+                controlsAreaDiv.style.display = 'none';
+                dataOutputPre.textContent = 'Select a file and options, then click "Get Data".';
+                statusMessageDiv.textContent = message;
+                statusMessageDiv.className = 'status';
+                cexParserInstance = null;
+            };
+            
+            const displayError = (message) => {
+                console.error(message);
+                statusMessageDiv.textContent = `Error: ${message}`;
+                statusMessageDiv.className = 'error';
+                dataOutputPre.textContent = `Error: ${message}`;
+            };
+
+            // --- File Input Handling ---
+            fileInput.addEventListener('change', async (event) => {
+                const file = event.target.files[0];
+                if (!file) {
+                    resetUIForNewFile();
+                    return;
+                }
+
+                resetUIForNewFile(`Processing ${file.name}...`);
+                loadingIndicator.style.display = 'block';
+
+                if (typeof CEXParser === 'undefined') {
+                    displayError("CEXParser class not loaded. Ensure cex-parser.js is included and correct.");
+                    loadingIndicator.style.display = 'none';
+                    return;
+                }
+
+                cexParserInstance = new CEXParser(); // New parser for each file
+                try {
+                    await cexParserInstance.loadFromFile(file);
+                    statusMessageDiv.textContent = `File '${file.name}' loaded. Choose options and click "Get Data".`;
+                    statusMessageDiv.className = 'status';
+                    controlsAreaDiv.style.display = 'block'; // Show controls
+                } catch (error) {
+                    displayError(`Failed to load or parse file '${file.name}': ${error.message}`);
+                    cexParserInstance = null;
+                } finally {
+                    loadingIndicator.style.display = 'none';
+                }
+            });
+
+            // --- Get Data Button Handler ---
+            getDataButton.addEventListener('click', () => {
+                if (!cexParserInstance) {
+                    dataOutputPre.textContent = "Please load a CEX file first.";
+                    return;
+                }
+
+                const selectedBlockType = blockTypeSelect.value;
+                const includeHeader = includeHeaderCheckbox.checked;
+
+                dataOutputPre.textContent = "Fetching data...";
+
+                try {
+                    const delimitedData = cexParserInstance.getDelimitedData(selectedBlockType, { includeHeader });
+                    if (delimitedData === "" && cexParserInstance.getBlockContents(selectedBlockType).length === 0) {
+                        dataOutputPre.textContent = `No blocks found with label '${selectedBlockType}'.`;
+                    } else if (delimitedData === "") {
+                         dataOutputPre.textContent = `Blocks with label '${selectedBlockType}' found, but they are empty or contain only comments after processing.`;
+                    }
+                    else {
+                        dataOutputPre.textContent = delimitedData;
+                    }
+                } catch (e) {
+                    displayError(`Error extracting data for '${selectedBlockType}': ${e.message}`);
+                }
+            });
+
+            // Initial state
+            resetUIForNewFile();
+        });
+    </script>
+</body>
+</html>
