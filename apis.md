@@ -1,4 +1,4 @@
-# CEX Parser API Documentation
+# `cex.js`: documentation
 
 ## Overview
 
