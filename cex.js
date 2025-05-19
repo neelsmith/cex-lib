@@ -3,76 +3,45 @@
 
     class CEXParser {
         constructor() {
-            this.blocks = {}; // Stores parsed blocks: { label: [contentString1, contentString2, ...] }
+            this.blocks = {};
         }
 
-        /**
-         * Parses a CEX data string.
-         * @param {string} cexString The CEX data as a string.
-         */
         parse(cexString) {
-            this.blocks = {}; // Reset blocks for new parse
+            this.blocks = {};
             const lines = cexString.split('\n');
             let currentLabel = null;
             let currentBlockLines = [];
 
             for (const rawLine of lines) {
                 const line = rawLine.trim();
-
-                if (line === '' || line.startsWith('//')) {
-                    continue; // Ignore empty lines and comments
-                }
+                if (line === '' || line.startsWith('//')) continue;
 
                 if (line.startsWith('#!')) {
-                    // If there was a previous block, store its collected lines
                     if (currentLabel && currentBlockLines.length > 0) {
-                        if (!this.blocks[currentLabel]) {
-                            this.blocks[currentLabel] = [];
-                        }
+                        if (!this.blocks[currentLabel]) this.blocks[currentLabel] = [];
                         this.blocks[currentLabel].push(currentBlockLines.join('\n'));
                     }
-                    // Start a new block
                     currentLabel = line.substring(2).trim();
-                    currentBlockLines = []; // Reset lines for the new block
+                    currentBlockLines = [];
                 } else if (currentLabel) {
-                    // Only add lines if we are inside a block
-                    // We use rawLine here to preserve original indentation within a block,
-                    // though trimming is generally good for block content lines too.
-                    // For simplicity and to match common CEX usage, let's add the non-trimmed line.
                     currentBlockLines.push(rawLine);
                 }
             }
-
-            // Store the last block's lines if any
             if (currentLabel && currentBlockLines.length > 0) {
-                if (!this.blocks[currentLabel]) {
-                    this.blocks[currentLabel] = [];
-                }
+                if (!this.blocks[currentLabel]) this.blocks[currentLabel] = [];
                 this.blocks[currentLabel].push(currentBlockLines.join('\n'));
             }
-            return this; // Allow chaining
+            return this;
         }
 
-        /**
-         * Loads CEX data from a URL.
-         * @param {string} url The URL to fetch CEX data from.
-         * @returns {Promise<CEXParser>} A promise that resolves with the parser instance.
-         */
         async loadFromUrl(url) {
             const response = await fetch(url);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status} for URL: ${url}`);
-            }
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status} for URL: ${url}`);
             const text = await response.text();
             this.parse(text);
             return this;
         }
 
-        /**
-         * Loads CEX data from a local File object.
-         * @param {File} file The File object.
-         * @returns {Promise<CEXParser>} A promise that resolves with the parser instance.
-         */
         loadFromFile(file) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
@@ -80,44 +49,102 @@
                     try {
                         this.parse(event.target.result);
                         resolve(this);
-                    } catch (e) {
-                        reject(e);
-                    }
+                    } catch (e) { reject(e); }
                 };
-                reader.onerror = (error) => {
-                    reject(error);
-                };
+                reader.onerror = (error) => reject(error);
                 reader.readAsText(file);
             });
         }
 
-        /**
-         * Gets all content for a specific block label.
-         * Each element in the returned array corresponds to one occurrence of the block.
-         * @param {string} label The block label to search for.
-         * @returns {string[]} An array of strings, where each string is the content of a block.
-         */
         getBlockContents(label) {
             return this.blocks[label] || [];
         }
 
-        /**
-         * Gets a list of unique block labels found in the CEX data.
-         * @returns {string[]} An array of unique block labels.
-         */
         getUniqueBlockLabels() {
             return Object.keys(this.blocks);
         }
+
+        getCollectionsForModel(targetModelValue, modelColumnName = "Model", collectionColumnName = "Collection") {
+            const datamodelBlocksContent = this.getBlockContents('datamodels');
+            if (!datamodelBlocksContent || datamodelBlocksContent.length === 0) return [];
+            const allMatchingCollections = new Set();
+            datamodelBlocksContent.forEach(blockContentStr => {
+                const linesInBlock = blockContentStr.split('\n');
+                if (linesInBlock.length < 1) return;
+                const headerRaw = linesInBlock[0];
+                const headerParts = headerRaw.split('|').map(h => h.trim());
+                const modelColIdx = headerParts.indexOf(modelColumnName);
+                const collectionColIdx = headerParts.indexOf(collectionColumnName);
+                if (modelColIdx === -1 || collectionColIdx === -1) {
+                    console.warn(`'${modelColumnName}' or '${collectionColumnName}' column not found in datamodels header: '${headerRaw.substring(0,100)}...'`);
+                    return;
+                }
+                for (let i = 1; i < linesInBlock.length; i++) {
+                    const dataLineRaw = linesInBlock[i];
+                    if (dataLineRaw.trim() === '') continue;
+                    const dataParts = dataLineRaw.split('|').map(d => d.trim());
+                    if (dataParts.length > Math.max(modelColIdx, collectionColIdx)) {
+                        if (dataParts[modelColIdx] === targetModelValue) {
+                            allMatchingCollections.add(dataParts[collectionColIdx]);
+                        }
+                    }
+                }
+            });
+            return Array.from(allMatchingCollections).sort();
+        }
+
+        /**
+         * Finds all unique values for the 'Model' column in all 'datamodels' blocks.
+         * Assumes pipe-delimited data with a header row.
+         *
+         * @param {string} [modelColumnName="Model"] The name of the column from which to extract model URNs.
+         * @returns {string[]} An array of unique string values from the 'Model' column, sorted.
+         */
+        getUniqueModelsFromDataModels(modelColumnName = "Model") {
+            const datamodelBlocksContent = this.getBlockContents('datamodels');
+            if (!datamodelBlocksContent || datamodelBlocksContent.length === 0) {
+                return [];
+            }
+
+            const allUniqueModels = new Set();
+
+            datamodelBlocksContent.forEach(blockContentStr => {
+                const linesInBlock = blockContentStr.split('\n');
+                if (linesInBlock.length < 1) { // Need at least a header line
+                    return;
+                }
+
+                const headerRaw = linesInBlock[0];
+                const headerParts = headerRaw.split('|').map(h => h.trim());
+                const targetColIdx = headerParts.indexOf(modelColumnName); // Target the model column
+
+                if (targetColIdx === -1) {
+                    console.warn(`'${modelColumnName}' column not found in datamodels block header: '${headerRaw.substring(0,100)}...'`);
+                    return; // Skip this block if the 'Model' column isn't found
+                }
+
+                // Process data lines (starting from index 1)
+                for (let i = 1; i < linesInBlock.length; i++) {
+                    const dataLineRaw = linesInBlock[i];
+                    if (dataLineRaw.trim() === '') continue; // Skip empty or whitespace-only lines
+
+                    const dataParts = dataLineRaw.split('|').map(d => d.trim());
+                    if (dataParts.length > targetColIdx) { // Ensure line has enough columns for the model
+                        allUniqueModels.add(dataParts[targetColIdx]); // Add the value from the model column
+                    } else {
+                        // console.warn(`Data line in datamodels block does not have enough columns for '${modelColumnName}': '${dataLineRaw.substring(0,100)}...'`);
+                    }
+                }
+            });
+
+            return Array.from(allUniqueModels).sort();
+        }
     }
 
-    // Expose CEXParser to the global scope (for browser environments)
     if (typeof window !== 'undefined') {
         window.CEXParser = CEXParser;
     }
-
-    // For Node.js environment (optional, but good practice for a library)
     if (typeof module !== 'undefined' && module.exports) {
         module.exports = CEXParser;
     }
-
 })(typeof window !== 'undefined' ? window : this);

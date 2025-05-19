@@ -1,0 +1,383 @@
+
+                        <!DOCTYPE html>
+                        <html lang="en">
+                        <head>
+                            <meta charset="UTF-8">
+                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+							<style>
+								body {
+									background-color: white; /* Ensure the iframe has a white background */
+								}
+
+								
+        body { font-family: sans-serif; margin: 20px; }
+        h1, h2, h3 { color: #333; }
+        ul { list-style-type: disc; margin-left: 20px; }
+        .error { color: red; font-weight: bold; }
+        .status { font-style: italic; color: #555; margin-bottom: 10px;}
+        .loader {
+            border: 5px solid #f3f3f3; /* Light grey */
+            border-top: 5px solid #3498db; /* Blue */
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 10px 0;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        select { padding: 8px; width: 450px; margin-bottom: 15px; font-size: 1em; }
+        input[type="file"] { margin-bottom: 15px; }
+        .form-group { margin-bottom: 15px; }
+        #queryInterface { display: none; /* Hidden initially */ }
+    
+
+							</style>
+                        </head>
+                        <body>
+                            <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test: Collections for Selected Model (Local File)</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        h1, h2, h3 { color: #333; }
+        ul { list-style-type: disc; margin-left: 20px; }
+        .error { color: red; font-weight: bold; }
+        .status { font-style: italic; color: #555; margin-bottom: 10px;}
+        .loader {
+            border: 5px solid #f3f3f3; /* Light grey */
+            border-top: 5px solid #3498db; /* Blue */
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 10px 0;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        select { padding: 8px; width: 450px; margin-bottom: 15px; font-size: 1em; }
+        input[type="file"] { margin-bottom: 15px; }
+        .form-group { margin-bottom: 15px; }
+        #queryInterface { display: none; /* Hidden initially */ }
+    </style>
+    <!-- Ensure cex-parser.js is in the same directory or use jsDelivr URL -->
+    <script src="cex.js"></script>
+</head>
+<body>
+    <h1>Test: Find Unique Collections for a Selected Model URN (from Local CEX File)</h1>
+
+    <p>
+        Choose a local CEX file (.cex or .txt). The page will then populate a menu with unique Model URNs
+        from its 'datamodels' blocks. Select a Model URN from the menu to see its associated Collection URNs.
+    </p>
+
+    <div>
+        <label for="fileInput">Choose CEX file:</label>
+        <input type="file" id="fileInput" accept=".cex,.txt">
+    </div>
+
+    <div id="loadingIndicator" class="loader" style="display: none;"></div>
+    <div id="statusMessage" class="status">Please select a CEX file to begin.</div>
+
+    <div id="queryInterface"> <!-- Remains hidden until file is processed -->
+        <div class="form-group">
+            <label for="modelSelectMenu">Select Model URN:</label>
+            <select id="modelSelectMenu">
+                <option value="">-- Select a Model URN --</option>
+            </select>
+        </div>
+
+        <h3>Collections found for the selected Model:</h3>
+        <ul id="collectionsList">
+            <li>Select a Model URN from the menu above.</li>
+        </ul>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const fileInput = document.getElementById('fileInput');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            const statusMessageDiv = document.getElementById('statusMessage');
+            const queryInterfaceDiv = document.getElementById('queryInterface');
+            const modelSelectMenu = document.getElementById('modelSelectMenu');
+            const collectionsUl = document.getElementById('collectionsList');
+
+            let cexParserInstance = null;
+
+            const resetUI = (message = "Please select a CEX file to begin.") => {
+                queryInterfaceDiv.style.display = 'none';
+                modelSelectMenu.innerHTML = '<option value="">-- Select a Model URN --</option>';
+                collectionsUl.innerHTML = '<li>Select a Model URN from the menu above.</li>';
+                statusMessageDiv.textContent = message;
+                statusMessageDiv.className = 'status';
+                cexParserInstance = null;
+            };
+            
+            const displayError = (message) => {
+                console.error(message);
+                statusMessageDiv.textContent = `Error: ${message}`;
+                statusMessageDiv.className = 'error';
+                // Optionally, also update parts of the queryInterface if it's visible
+                modelSelectMenu.innerHTML = '<option value="">-- Error --</option>';
+                collectionsUl.innerHTML = `<li class="error">${message}</li>`;
+                queryInterfaceDiv.style.display = 'block'; // Show error within query area
+            };
+
+            const populateModelMenu = () => {
+                if (!cexParserInstance) {
+                    displayError("Parser not initialized for populating menu.");
+                    return;
+                }
+                try {
+                    const uniqueModels = cexParserInstance.getUniqueModelsFromDataModels();
+                    modelSelectMenu.innerHTML = ''; // Clear loading/error message
+
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = "";
+                    defaultOption.textContent = "-- Select a Model URN --";
+                    modelSelectMenu.appendChild(defaultOption);
+
+                    if (uniqueModels.length > 0) {
+                        uniqueModels.forEach(modelUrn => {
+                            const option = document.createElement('option');
+                            option.value = modelUrn;
+                            option.textContent = modelUrn;
+                            modelSelectMenu.appendChild(option);
+                        });
+                        statusMessageDiv.textContent = 'File processed. Select a Model URN from the menu.';
+                    } else {
+                        defaultOption.textContent = "-- No Model URNs found in datamodels --";
+                        statusMessageDiv.textContent = 'No Model URNs found in datamodels blocks in the selected file.';
+                    }
+                } catch (e) {
+                    displayError(`Error populating model menu: ${e.message}`);
+                }
+            };
+
+            const displayCollectionsForSelectedModel = () => {
+                if (!cexParserInstance) {
+                    displayError("CEX Parser not initialized or data not loaded.");
+                    return;
+                }
+
+                const selectedModel = modelSelectMenu.value;
+                collectionsUl.innerHTML = ''; // Clear previous results
+
+                if (!selectedModel) {
+                    collectionsUl.innerHTML = '<li>Select a Model URN from the menu above.</li>';
+                    return;
+                }
+
+                collectionsUl.innerHTML = '<li>Searching...</li>';
+
+                try {
+                    const collections = cexParserInstance.getCollectionsForModel(selectedModel);
+
+                    if (collections.length > 0) {
+                        collections.forEach(collectionUrn => {
+                            const li = document.createElement('li');
+                            li.textContent = collectionUrn;
+                            collectionsUl.appendChild(li);
+                        });
+                    } else {
+                        collectionsUl.innerHTML = `<li>No collections found for Model URN: "${selectedModel}".</li>`;
+                    }
+                } catch (e) {
+                    displayError(`Error querying collections: ${e.message}`);
+                }
+            };
+
+            // --- File Input Handling ---
+            fileInput.addEventListener('change', async (event) => {
+                const file = event.target.files[0];
+                if (!file) {
+                    resetUI();
+                    return;
+                }
+
+                resetUI(`Processing ${file.name}...`); // Reset UI and show processing message
+                loadingIndicator.style.display = 'block';
+                queryInterfaceDiv.style.display = 'none'; // Hide query interface while processing a new file
+
+                if (typeof CEXParser === 'undefined') {
+                    displayError("CEXParser class not loaded. Ensure cex-parser.js is included and correct.");
+                    loadingIndicator.style.display = 'none';
+                    return;
+                }
+
+                cexParserInstance = new CEXParser(); // New parser for each file
+                try {
+                    await cexParserInstance.loadFromFile(file);
+                    statusMessageDiv.textContent = `File '${file.name}' loaded. Populating Model menu...`;
+                    populateModelMenu();
+                    queryInterfaceDiv.style.display = 'block'; // Show the query form
+                    // Call to display initial message in collectionsList or if a model auto-selects
+                    displayCollectionsForSelectedModel(); 
+                } catch (error) {
+                    displayError(`Failed to load or parse file '${file.name}': ${error.message}`);
+                    cexParserInstance = null; // Nullify on error
+                } finally {
+                    loadingIndicator.style.display = 'none';
+                }
+            });
+
+            // Event listener for the select menu
+            modelSelectMenu.addEventListener('change', displayCollectionsForSelectedModel);
+
+            // Initial state
+            resetUI(); // Ensure clean UI on page load
+        });
+    </script>
+</body>
+</html>
+
+
+
+							<script>
+                            	
+        document.addEventListener('DOMContentLoaded', () => {
+            const fileInput = document.getElementById('fileInput');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            const statusMessageDiv = document.getElementById('statusMessage');
+            const queryInterfaceDiv = document.getElementById('queryInterface');
+            const modelSelectMenu = document.getElementById('modelSelectMenu');
+            const collectionsUl = document.getElementById('collectionsList');
+
+            let cexParserInstance = null;
+
+            const resetUI = (message = "Please select a CEX file to begin.") => {
+                queryInterfaceDiv.style.display = 'none';
+                modelSelectMenu.innerHTML = '<option value="">-- Select a Model URN --</option>';
+                collectionsUl.innerHTML = '<li>Select a Model URN from the menu above.</li>';
+                statusMessageDiv.textContent = message;
+                statusMessageDiv.className = 'status';
+                cexParserInstance = null;
+            };
+            
+            const displayError = (message) => {
+                console.error(message);
+                statusMessageDiv.textContent = `Error: ${message}`;
+                statusMessageDiv.className = 'error';
+                // Optionally, also update parts of the queryInterface if it's visible
+                modelSelectMenu.innerHTML = '<option value="">-- Error --</option>';
+                collectionsUl.innerHTML = `<li class="error">${message}</li>`;
+                queryInterfaceDiv.style.display = 'block'; // Show error within query area
+            };
+
+            const populateModelMenu = () => {
+                if (!cexParserInstance) {
+                    displayError("Parser not initialized for populating menu.");
+                    return;
+                }
+                try {
+                    const uniqueModels = cexParserInstance.getUniqueModelsFromDataModels();
+                    modelSelectMenu.innerHTML = ''; // Clear loading/error message
+
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = "";
+                    defaultOption.textContent = "-- Select a Model URN --";
+                    modelSelectMenu.appendChild(defaultOption);
+
+                    if (uniqueModels.length > 0) {
+                        uniqueModels.forEach(modelUrn => {
+                            const option = document.createElement('option');
+                            option.value = modelUrn;
+                            option.textContent = modelUrn;
+                            modelSelectMenu.appendChild(option);
+                        });
+                        statusMessageDiv.textContent = 'File processed. Select a Model URN from the menu.';
+                    } else {
+                        defaultOption.textContent = "-- No Model URNs found in datamodels --";
+                        statusMessageDiv.textContent = 'No Model URNs found in datamodels blocks in the selected file.';
+                    }
+                } catch (e) {
+                    displayError(`Error populating model menu: ${e.message}`);
+                }
+            };
+
+            const displayCollectionsForSelectedModel = () => {
+                if (!cexParserInstance) {
+                    displayError("CEX Parser not initialized or data not loaded.");
+                    return;
+                }
+
+                const selectedModel = modelSelectMenu.value;
+                collectionsUl.innerHTML = ''; // Clear previous results
+
+                if (!selectedModel) {
+                    collectionsUl.innerHTML = '<li>Select a Model URN from the menu above.</li>';
+                    return;
+                }
+
+                collectionsUl.innerHTML = '<li>Searching...</li>';
+
+                try {
+                    const collections = cexParserInstance.getCollectionsForModel(selectedModel);
+
+                    if (collections.length > 0) {
+                        collections.forEach(collectionUrn => {
+                            const li = document.createElement('li');
+                            li.textContent = collectionUrn;
+                            collectionsUl.appendChild(li);
+                        });
+                    } else {
+                        collectionsUl.innerHTML = `<li>No collections found for Model URN: "${selectedModel}".</li>`;
+                    }
+                } catch (e) {
+                    displayError(`Error querying collections: ${e.message}`);
+                }
+            };
+
+            // --- File Input Handling ---
+            fileInput.addEventListener('change', async (event) => {
+                const file = event.target.files[0];
+                if (!file) {
+                    resetUI();
+                    return;
+                }
+
+                resetUI(`Processing ${file.name}...`); // Reset UI and show processing message
+                loadingIndicator.style.display = 'block';
+                queryInterfaceDiv.style.display = 'none'; // Hide query interface while processing a new file
+
+                if (typeof CEXParser === 'undefined') {
+                    displayError("CEXParser class not loaded. Ensure cex-parser.js is included and correct.");
+                    loadingIndicator.style.display = 'none';
+                    return;
+                }
+
+                cexParserInstance = new CEXParser(); // New parser for each file
+                try {
+                    await cexParserInstance.loadFromFile(file);
+                    statusMessageDiv.textContent = `File '${file.name}' loaded. Populating Model menu...`;
+                    populateModelMenu();
+                    queryInterfaceDiv.style.display = 'block'; // Show the query form
+                    // Call to display initial message in collectionsList or if a model auto-selects
+                    displayCollectionsForSelectedModel(); 
+                } catch (error) {
+                    displayError(`Failed to load or parse file '${file.name}': ${error.message}`);
+                    cexParserInstance = null; // Nullify on error
+                } finally {
+                    loadingIndicator.style.display = 'none';
+                }
+            });
+
+            // Event listener for the select menu
+            modelSelectMenu.addEventListener('change', displayCollectionsForSelectedModel);
+
+            // Initial state
+            resetUI(); // Ensure clean UI on page load
+        });
+    
+
+							</script>
+                        </body>
+                        </html>
+                    
