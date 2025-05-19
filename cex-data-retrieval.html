@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test: Get Data for All Supported CEX Block Types</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        h1, h2, h3, h4 { color: #333; }
+        .error { color: red; font-weight: bold; }
+        .status { font-style: italic; color: #555; margin-bottom: 10px;}
+        .loader {
+            border: 5px solid #f3f3f3; /* Light grey */
+            border-top: 5px solid #3498db; /* Blue */
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 10px 0;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        select, input[type="checkbox"], button { margin-bottom: 15px; padding: 8px; font-size: 1em; }
+        input[type="file"] { margin-bottom: 15px; }
+        .controls > * { margin-right: 15px; vertical-align: middle;}
+        pre {
+            background-color: #f4f4f4;
+            padding: 10px; /* Reduced padding for nested pre */
+            border: 1px solid #ddd;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 400px; /* Max height for individual pre blocks */
+            overflow-y: auto;
+            margin-top: 5px;
+        }
+        #dataOutputContainer {
+            background-color: #f9f9f9;
+            padding: 15px;
+            border: 1px solid #ccc;
+            max-height: 600px; /* Max height for the whole container */
+            overflow-y: auto;
+        }
+        .relation-set {
+            border-bottom: 1px dashed #bbb;
+            padding-bottom: 10px;
+            margin-bottom: 10px;
+        }
+        .relation-set:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+
+    </style>
+    <script src="cex.js"></script>
+</head>
+<body>
+    <h1>Test: Get Data for All Supported CEX Block Types</h1>
+
+    <p>
+        Choose a local CEX file. Then select a block type and whether to include the header.
+        The content of all blocks of that type will be displayed.
+    </p>
+
+    <div>
+        <label for="fileInput">Choose CEX file:</label>
+        <input type="file" id="fileInput" accept=".cex,.txt">
+    </div>
+
+    <div id="loadingIndicator" class="loader" style="display: none;"></div>
+    <div id="statusMessage" class="status">Please select a CEX file to begin.</div>
+
+    <div id="controlsArea" style="display: none;">
+        <div class="controls">
+            <label for="blockTypeSelect">Block Type:</label>
+            <select id="blockTypeSelect">
+                <option value="citedata">citedata</option>
+                <option value="citecollections">citecollections</option>
+                <option value="citeproperties">citeproperties</option>
+                <option value="ctscatalog">ctscatalog</option>
+                <option value="ctsdata">ctsdata</option>
+                <option value="datamodels">datamodels</option>
+                <option value="citerelationset">citerelationset</option> <!-- New type -->
+            </select>
+
+            <input type="checkbox" id="includeHeaderCheckbox" checked>
+            <label for="includeHeaderCheckbox">Include Header Line (for data part)</label>
+
+            <button id="getDataButton">Get Data</button>
+        </div>
+    </div>
+
+    <h2>Retrieved Data:</h2>
+    <div id="dataOutputContainer">
+        <p id="dataOutputPlaceholder">Select a file and options, then click "Get Data".</p>
+        <!-- Data will be dynamically inserted here -->
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const fileInput = document.getElementById('fileInput');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            const statusMessageDiv = document.getElementById('statusMessage');
+            const controlsAreaDiv = document.getElementById('controlsArea');
+            const blockTypeSelect = document.getElementById('blockTypeSelect');
+            const includeHeaderCheckbox = document.getElementById('includeHeaderCheckbox');
+            const getDataButton = document.getElementById('getDataButton');
+            const dataOutputContainer = document.getElementById('dataOutputContainer');
+            const dataOutputPlaceholder = document.getElementById('dataOutputPlaceholder');
+
+
+            let cexParserInstance = null;
+
+            const resetUIForNewFile = (message = "Please select a CEX file to begin.") => {
+                controlsAreaDiv.style.display = 'none';
+                dataOutputContainer.innerHTML = ''; // Clear container
+                dataOutputPlaceholder.textContent = 'Select a file and options, then click "Get Data".';
+                dataOutputContainer.appendChild(dataOutputPlaceholder);
+                statusMessageDiv.textContent = message;
+                statusMessageDiv.className = 'status';
+                cexParserInstance = null;
+            };
+            
+            const displayError = (message) => {
+                console.error(message);
+                statusMessageDiv.textContent = `Error: ${message}`;
+                statusMessageDiv.className = 'error';
+                dataOutputContainer.innerHTML = ''; // Clear container
+                dataOutputPlaceholder.textContent = `Error: ${message}`;
+                dataOutputContainer.appendChild(dataOutputPlaceholder);
+            };
+            
+            const displayData = (content) => {
+                dataOutputContainer.innerHTML = ''; // Clear previous content or placeholder
+                if (typeof content === 'string') {
+                    const pre = document.createElement('pre');
+                    pre.textContent = content || "(No data or empty after processing)";
+                    dataOutputContainer.appendChild(pre);
+                } else if (Array.isArray(content)) { // For citerelationset
+                    if (content.length === 0) {
+                        dataOutputContainer.innerHTML = "<p>(No 'citerelationset' blocks found or all were malformed)</p>";
+                        return;
+                    }
+                    content.forEach((set, index) => {
+                        const setDiv = document.createElement('div');
+                        setDiv.className = 'relation-set';
+                        
+                        const urnH4 = document.createElement('h4');
+                        urnH4.textContent = `Relation Set ${index + 1} - URN: ${set.urn || 'N/A'}`;
+                        setDiv.appendChild(urnH4);
+
+                        const labelP = document.createElement('p');
+                        labelP.innerHTML = `<strong>Label:</strong> ${set.label || 'N/A'}`;
+                        setDiv.appendChild(labelP);
+                        
+                        const dataHeader = document.createElement('p');
+                        dataHeader.innerHTML = `<strong>Data:</strong>`;
+                        setDiv.appendChild(dataHeader);
+
+                        const dataPre = document.createElement('pre');
+                        dataPre.textContent = set.data || "(No data content)";
+                        setDiv.appendChild(dataPre);
+
+                        dataOutputContainer.appendChild(setDiv);
+                    });
+                }
+            };
+
+
+            // --- File Input Handling ---
+            fileInput.addEventListener('change', async (event) => {
+                const file = event.target.files[0];
+                if (!file) {
+                    resetUIForNewFile();
+                    return;
+                }
+
+                resetUIForNewFile(`Processing ${file.name}...`);
+                loadingIndicator.style.display = 'block';
+
+                if (typeof CEXParser === 'undefined') {
+                    displayError("CEXParser class not loaded.");
+                    loadingIndicator.style.display = 'none';
+                    return;
+                }
+
+                cexParserInstance = new CEXParser();
+                try {
+                    await cexParserInstance.loadFromFile(file);
+                    statusMessageDiv.textContent = `File '${file.name}' loaded. Choose options and click "Get Data".`;
+                    statusMessageDiv.className = 'status';
+                    controlsAreaDiv.style.display = 'block';
+                } catch (error) {
+                    displayError(`Failed to load or parse file '${file.name}': ${error.message}`);
+                    cexParserInstance = null;
+                } finally {
+                    loadingIndicator.style.display = 'none';
+                }
+            });
+
+            // --- Get Data Button Handler ---
+            getDataButton.addEventListener('click', () => {
+                if (!cexParserInstance) {
+                    dataOutputPlaceholder.textContent = "Please load a CEX file first.";
+                    dataOutputContainer.innerHTML = '';
+                    dataOutputContainer.appendChild(dataOutputPlaceholder);
+                    return;
+                }
+
+                const selectedBlockType = blockTypeSelect.value;
+                const includeHeader = includeHeaderCheckbox.checked;
+                
+                dataOutputPlaceholder.textContent = "Fetching data...";
+                dataOutputContainer.innerHTML = '';
+                dataOutputContainer.appendChild(dataOutputPlaceholder);
+
+
+                try {
+                    let resultData;
+                    if (selectedBlockType === 'citerelationset') {
+                        resultData = cexParserInstance.getRelationSetData({ includeHeader });
+                        if (resultData.length === 0 && cexParserInstance.getBlockContents(selectedBlockType).length > 0) {
+                             displayData([]); // Show specific message for empty after processing
+                             statusMessageDiv.textContent = `Blocks with label '${selectedBlockType}' found, but none were valid or contained data.`;
+                             return;
+                        }
+                    } else {
+                        resultData = cexParserInstance.getDelimitedData(selectedBlockType, { includeHeader });
+                        if (resultData === "" && cexParserInstance.getBlockContents(selectedBlockType).length > 0) {
+                            resultData = `(Blocks with label '${selectedBlockType}' found, but they are empty or contain only comments after processing)`;
+                        }
+                    }
+                    
+                    if ((typeof resultData === 'string' && resultData === "") || (Array.isArray(resultData) && resultData.length === 0)) {
+                         if (cexParserInstance.getBlockContents(selectedBlockType).length === 0) {
+                            statusMessageDiv.textContent = `No blocks found with label '${selectedBlockType}'.`;
+                            displayData(`No blocks found with label '${selectedBlockType}'.`);
+                         } else {
+                            // This case means blocks were found but yielded no data (e.g. all malformed for relationset, or empty for delimited)
+                            statusMessageDiv.textContent = `No data extracted for '${selectedBlockType}'. Blocks might be empty or malformed.`;
+                            displayData(resultData); // displayData will handle the array or string case
+                         }
+                    } else {
+                        statusMessageDiv.textContent = `Data retrieved for '${selectedBlockType}'.`;
+                        displayData(resultData);
+                    }
+
+                } catch (e) {
+                    displayError(`Error extracting data for '${selectedBlockType}': ${e.message}`);
+                }
+            });
+
+            resetUIForNewFile();
+        });
+    </script>
+</body>
+</html>

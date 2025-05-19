@@ -35,6 +35,7 @@
         }
 
         async loadFromUrl(url) {
+            // ... (same as before)
             const response = await fetch(url);
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status} for URL: ${url}`);
             const text = await response.text();
@@ -43,6 +44,7 @@
         }
 
         loadFromFile(file) {
+            // ... (same as before)
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = (event) => {
@@ -65,6 +67,7 @@
         }
 
         getCollectionsForModel(targetModelValue, modelColumnName = "Model", collectionColumnName = "Collection") {
+            // ... (same as before)
             const datamodelBlocksContent = this.getBlockContents('datamodels');
             if (!datamodelBlocksContent || datamodelBlocksContent.length === 0) return [];
             const allMatchingCollections = new Set();
@@ -75,10 +78,7 @@
                 const headerParts = headerRaw.split('|').map(h => h.trim());
                 const modelColIdx = headerParts.indexOf(modelColumnName);
                 const collectionColIdx = headerParts.indexOf(collectionColumnName);
-                if (modelColIdx === -1 || collectionColIdx === -1) {
-                    console.warn(`'${modelColumnName}' or '${collectionColumnName}' column not found in datamodels header: '${headerRaw.substring(0,100)}...'`);
-                    return;
-                }
+                if (modelColIdx === -1 || collectionColIdx === -1) return;
                 for (let i = 1; i < linesInBlock.length; i++) {
                     const dataLineRaw = linesInBlock[i];
                     if (dataLineRaw.trim() === '') continue;
@@ -93,51 +93,135 @@
             return Array.from(allMatchingCollections).sort();
         }
 
-        /**
-         * Finds all unique values for the 'Model' column in all 'datamodels' blocks.
-         * Assumes pipe-delimited data with a header row.
-         *
-         * @param {string} [modelColumnName="Model"] The name of the column from which to extract model URNs.
-         * @returns {string[]} An array of unique string values from the 'Model' column, sorted.
-         */
         getUniqueModelsFromDataModels(modelColumnName = "Model") {
+            // ... (same as before)
             const datamodelBlocksContent = this.getBlockContents('datamodels');
-            if (!datamodelBlocksContent || datamodelBlocksContent.length === 0) {
-                return [];
-            }
-
+            if (!datamodelBlocksContent || datamodelBlocksContent.length === 0) return [];
             const allUniqueModels = new Set();
-
             datamodelBlocksContent.forEach(blockContentStr => {
                 const linesInBlock = blockContentStr.split('\n');
-                if (linesInBlock.length < 1) { // Need at least a header line
-                    return;
-                }
-
+                if (linesInBlock.length < 1) return;
                 const headerRaw = linesInBlock[0];
                 const headerParts = headerRaw.split('|').map(h => h.trim());
-                const targetColIdx = headerParts.indexOf(modelColumnName); // Target the model column
-
-                if (targetColIdx === -1) {
-                    console.warn(`'${modelColumnName}' column not found in datamodels block header: '${headerRaw.substring(0,100)}...'`);
-                    return; // Skip this block if the 'Model' column isn't found
-                }
-
-                // Process data lines (starting from index 1)
+                const targetColIdx = headerParts.indexOf(modelColumnName);
+                if (targetColIdx === -1) return;
                 for (let i = 1; i < linesInBlock.length; i++) {
                     const dataLineRaw = linesInBlock[i];
-                    if (dataLineRaw.trim() === '') continue; // Skip empty or whitespace-only lines
-
+                    if (dataLineRaw.trim() === '') continue;
                     const dataParts = dataLineRaw.split('|').map(d => d.trim());
-                    if (dataParts.length > targetColIdx) { // Ensure line has enough columns for the model
-                        allUniqueModels.add(dataParts[targetColIdx]); // Add the value from the model column
-                    } else {
-                        // console.warn(`Data line in datamodels block does not have enough columns for '${modelColumnName}': '${dataLineRaw.substring(0,100)}...'`);
+                    if (dataParts.length > targetColIdx) {
+                        allUniqueModels.add(dataParts[targetColIdx]);
                     }
                 }
             });
-
             return Array.from(allUniqueModels).sort();
+        }
+
+        getDelimitedData(blockLabel, options = {}) {
+            // ... (same as before, no changes needed here)
+            const { includeHeader = true } = options;
+            const blockContentStrings = this.getBlockContents(blockLabel);
+            if (!blockContentStrings || blockContentStrings.length === 0) {
+                return "";
+            }
+            const resultLines = [];
+            let headerProcessedAndAdded = false;
+            blockContentStrings.forEach(blockContentStr => {
+                const rawLinesInBlock = blockContentStr.split('\n');
+                const processedLinesInBlock = rawLinesInBlock
+                    .map(line => line.trim())
+                    .filter(trimmedLine => trimmedLine !== '' && !trimmedLine.startsWith('//'));
+                if (processedLinesInBlock.length === 0) return;
+                const headerLine = processedLinesInBlock[0];
+                const dataLines = processedLinesInBlock.slice(1);
+                if (includeHeader) {
+                    if (!headerProcessedAndAdded) {
+                        resultLines.push(headerLine);
+                        headerProcessedAndAdded = true;
+                    }
+                }
+                resultLines.push(...dataLines);
+            });
+            return resultLines.join('\n');
+        }
+
+        /**
+         * Extracts data from 'citerelationset' blocks.
+         * Each block is expected to have:
+         * 1. URN line: "urn|<value>"
+         * 2. Label line: "label|<value>"
+         * 3. Header line for data (pipe-delimited)
+         * 4. Data lines (pipe-delimited)
+         *
+         * @param {object} [options={}] Options for data extraction.
+         * @param {boolean} [options.includeHeader=true] Whether to include the data header line.
+         * @returns {object[]} An array of objects, each representing a parsed 'citerelationset' block.
+         *                   Each object has `urn`, `label`, and `data` (string) properties.
+         *                   Returns an empty array if no valid blocks are found.
+         */
+        getRelationSetData(options = {}) {
+            const { includeHeader = true } = options;
+            const blockContentStrings = this.getBlockContents('citerelationset');
+            if (!blockContentStrings || blockContentStrings.length === 0) {
+                return [];
+            }
+
+            const relationSets = [];
+
+            blockContentStrings.forEach(blockContentStr => {
+                const rawLinesInBlock = blockContentStr.split('\n');
+                // Process lines within this specific block: trim, filter empty and comments
+                const processedLinesInBlock = rawLinesInBlock
+                    .map(line => line.trim())
+                    .filter(trimmedLine => trimmedLine !== '' && !trimmedLine.startsWith('//'));
+
+                if (processedLinesInBlock.length < 3) { // Min: urn, label, data_header
+                    console.warn("Skipping malformed citerelationset block: not enough lines for urn, label, and data header. Content:", blockContentStr.substring(0, 150) + "...");
+                    return; // Skip this block
+                }
+
+                let parsedUrn = null;
+                let parsedLabel = null;
+                
+                const urnLineContent = processedLinesInBlock[0];
+                if (urnLineContent.toLowerCase().startsWith("urn|")) {
+                    parsedUrn = urnLineContent.substring(4).trim();
+                } else {
+                    console.warn("Skipping citerelationset block: URN line malformed or missing. Expected 'urn|...'. Found:", urnLineContent);
+                    return; // Skip this block
+                }
+
+                const labelLineContent = processedLinesInBlock[1];
+                if (labelLineContent.toLowerCase().startsWith("label|")) {
+                    parsedLabel = labelLineContent.substring(6).trim();
+                } else {
+                    console.warn("Skipping citerelationset block: Label line malformed or missing. Expected 'label|...'. Found:", labelLineContent);
+                    return; // Skip this block
+                }
+                
+                const dataHeaderLine = processedLinesInBlock[2];
+                const dataContentLines = processedLinesInBlock.slice(3);
+
+                let dataString = "";
+                if (includeHeader) {
+                    dataString = dataHeaderLine; // Always include the specific header for this relation set's data
+                    if (dataContentLines.length > 0) {
+                        dataString += '\n' + dataContentLines.join('\n');
+                    }
+                } else {
+                    if (dataContentLines.length > 0) {
+                        dataString = dataContentLines.join('\n');
+                    }
+                }
+
+                relationSets.push({
+                    urn: parsedUrn,
+                    label: parsedLabel,
+                    data: dataString
+                });
+            });
+
+            return relationSets;
         }
     }
 
